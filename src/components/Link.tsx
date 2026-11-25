@@ -27,6 +27,7 @@ import {
   isExternalUrl,
   linkRequiresWarning,
 } from '#/lib/strings/url-helpers'
+import {useInAppBrowser} from '#/state/preferences/in-app-browser'
 import {atoms as a, flatten, type TextStyleProp, useTheme, web} from '#/alf'
 import {Button, type ButtonProps} from '#/components/Button'
 import {useInteractionState} from '#/components/hooks/useInteractionState'
@@ -97,8 +98,8 @@ type BaseLinkProps = {
 
   /**
    * iOS only. Wraps the link in a peek menu: long-pressing previews the live
-   * page in an in-app browser, with a share action in the menu. Tapping the
-   * preview opens the link the same way a plain tap would. No-op elsewhere.
+   * page in an in-app browser (morphing into it on tap when the in-app browser
+   * preference is on), with a share action in the menu. No-op elsewhere.
    */
   peek?: boolean
 
@@ -288,11 +289,9 @@ export function useLink({
     [outerOnLongPress, handleLongPress, shareOnLongPress],
   )
 
-  /*
-   * Opens the link through the normal external flow (consent dialog, in-app
-   * browser, or system browser per preference). Used by the peek menu so that
-   * committing the peek behaves like a plain tap.
-   */
+  // Opens the link through the normal external flow (consent dialog, in-app
+  // browser, or system browser per preference). Used by the peek menu when the
+  // in-app browser is off, so committing the peek behaves like a plain tap.
   const openExternally = useCallback(() => {
     void openLink(href, overridePresentation, shouldProxy)
   }, [openLink, href, overridePresentation, shouldProxy])
@@ -403,7 +402,8 @@ export function Link({
 
 /**
  * iOS peek-menu wrapper for an external `Link`. Long-pressing previews the live
- * page in an in-app browser; tapping the peek hands off to the normal link flow
+ * page in an in-app browser; the in-app-browser preference decides whether
+ * tapping the peek morphs into the browser or hands off to the normal link flow
  * via `onPreviewPress`. The menu carries a Share action.
  */
 function LinkPeek({
@@ -421,6 +421,7 @@ function LinkPeek({
 }) {
   const t = useTheme()
   const {t: l} = useLingui()
+  const useInAppBrowserPref = useInAppBrowser()
 
   return (
     <PeekMenu.Root>
@@ -428,19 +429,15 @@ function LinkPeek({
         preview={{
           type: 'link',
           url: shouldProxy ? createProxiedUrl(href) : href,
-          /*
-           * Never morph the peek into the browser natively. With iOS's "Hide
-           * Link Previews" setting on, the peek is Safari's collapsed "Tap to
-           * show preview" placeholder, and morphing presents that same
-           * placeholder full screen: a blank page with no browser controls and
-           * no way to load the link. Dismissing and opening a fresh browser
-           * through the JS flow works in both modes.
-           */
-          useInAppBrowser: false,
+          // Only morph natively when the user has explicitly opted in. When the
+          // preference is unset (undefined), defer to the JS flow so the consent
+          // dialog can show.
+          useInAppBrowser: useInAppBrowserPref === true,
           browserToolbarColor: t.atoms.bg.backgroundColor,
           browserControlsColor: t.atoms.text_link.color,
         }}
         borderRadius={borderRadius}
+        // Fires only when not morphing natively (in-app browser off/unset).
         onPreviewPress={onPreviewPress}>
         {children}
       </PeekMenu.Trigger>
