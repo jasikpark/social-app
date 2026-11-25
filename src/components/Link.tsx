@@ -1,4 +1,4 @@
-import {useCallback, useMemo} from 'react'
+import {useCallback, useMemo, useRef} from 'react'
 import {
   type GestureResponderEvent,
   Linking,
@@ -37,6 +37,13 @@ import {Text, type TextProps} from '#/components/Typography'
 import {IS_IOS, IS_NATIVE, IS_WEB} from '#/env'
 import {router} from '#/routes'
 import {useGlobalDialogsControlContext} from './dialogs/Context'
+
+/**
+ * How long a press on a peek-enabled link may last and still count as a tap.
+ * Kept under the iOS context menu's long-press duration (about half a second)
+ * so the two can never both win.
+ */
+const PEEK_MAX_TAP_DURATION_MS = 350
 
 /**
  * Only available within a `Link`, since that inherits from `Button`.
@@ -353,6 +360,24 @@ export function Link({
 
   // Peek is iOS-only and only makes sense for external web links.
   const peekEnabled = Boolean(peek && IS_IOS && isExternal)
+  const pressedInAt = useRef(0)
+
+  const onPressIn = (e: GestureResponderEvent) => {
+    pressedInAt.current = Date.now()
+    rest.onPressIn?.(e)
+  }
+
+  /*
+   * With no `onLongPress`, RN fires `onPress` on release no matter how long
+   * the press was held. The native context menu usually cancels the touch
+   * first, but releasing just as the menu opens lets both through: the peek
+   * appears and the link opens over it at the same time. Treat any press held
+   * long enough to be headed for the menu as not a tap.
+   */
+  const onPeekPress = (e: GestureResponderEvent) => {
+    if (Date.now() - pressedInAt.current >= PEEK_MAX_TAP_DURATION_MS) return
+    onPress(e)
+  }
 
   const button = (
     <Button
@@ -361,7 +386,8 @@ export function Link({
       role="link"
       accessibilityRole="link"
       href={href}
-      onPress={download ? undefined : onPress}
+      onPress={download ? undefined : peekEnabled ? onPeekPress : onPress}
+      onPressIn={peekEnabled ? onPressIn : rest.onPressIn}
       // When peeking, the native long-press drives the context menu. A
       // simultaneous RN long-press recognizer fights it — cancelling the tap
       // and breaking the lift animation — so leave long-press to native and
